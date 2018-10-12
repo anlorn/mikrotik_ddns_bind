@@ -1,0 +1,47 @@
+# WAN interface
+:local wanInterface "ether1";
+
+# Hostname of master DNS server where update would be send
+:local masterDnsHost "";
+
+# Hostname for which we want to update and IP
+:local hostnameForUpdate "";
+
+# key generation "dnssec-keygen -a HMAC-MD5 -b 512 -n HOST -r /dev/urandom -K /etc/bind/ {hostnameForUpdate}"
+:local keyName "";
+:local key "";
+
+if ([:len $wanInterface] = 0) do={error "WAN interface isn't defined"};
+if ([:len $masterDnsHost] = 0) do={error "Master DNS hostname isn't defined"};
+if ([:len $hostnameForUpdate] = 0) do={error "Hostname for which IP should be updated isn't defined"};
+if ([:len $keyName] = 0) do={error "TSIG key name for DNS server isn't defined"};
+if ([:len $key] = 0) do={error "TSIG key for DNS server isn't defined"};
+
+:global previousIP;
+
+:log debug ("Getting WAN IP of interface '$wanInterface'")
+:local interfaceAddr [/ip address get [find interface="$wanInterface" disabled=no] address];
+if ([:len $interfaceAddr] = 0 ) do={error "Can't get WAN address for interface '$wanInterface'"};
+:local currentIP [:pick $interfaceAddr 0 [:find $interfaceAddr "/"]]
+if ([:len $currentIP] = 0 ) do={error "Can't parse WAN address '$interfaceAddr'"};
+
+if ($previousIP != $currentIP) do={
+    :log info ("DDNS: IP of '$hostnameForUpdate' has been changed since last update. New IP is '$currentIP', old is '$previousIP'. Will update DNS record");
+
+    :log debug ("Parsing hostname '$hostnameForUpdate'")
+    :local decimalPos [:find $hostnameForUpdate "."];
+    if ([:len $decimalPos] = 0 ) do={error "Hostname for updating IP is wrong"};
+    :local host [:pick $hostnameForUpdate 0 $decimalPos]
+    if ([:len $host] = 0 ) do={error "Hostname for update is wrong"};
+    :local zone [:pick $hostnameForUpdate $decimalPos 999]
+    if ([:len $zone] = 0 ) do={error "Hostname for update is wrong"};
+
+    :log debug ("Getting IP of master DNS '$masterDnsHost'")
+    :local masterDnsIP [:put [:resolve domain-name=$masterDnsHost]];
+    if ([:len $masterDnsIP] = 0 ) do={error "Can't resolve master DNS hostname"};
+
+    /tool dns-update dns-server=$masterDnsIP key=$key key-name=$keyName zone=anlorn.com name=home address=$currentIP;
+    :set $previousIP $currentIP;
+} else {
+    :log info ("DDNS: IP hasn't changed since last run. Will not update DNS record")
+}
